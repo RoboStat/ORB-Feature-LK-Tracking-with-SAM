@@ -36,6 +36,8 @@ class Landmark
         std::vector <cv::KeyPoint> traceHistory_r;
         std::vector <int> traceFrameNum;
 
+        bool in_Graph;
+
         void UpdateKeypoint(cv::KeyPoint kp_l, cv::KeyPoint kp_r, int nFrame);
         void UpdateKeypoint(cv::Point2f kp_l, cv::Point2f kp_r, int nFrame);
 

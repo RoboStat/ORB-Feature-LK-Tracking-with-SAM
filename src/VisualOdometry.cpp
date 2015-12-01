@@ -316,12 +316,12 @@ void VisualOdometry::InitializeMotionEstimation()
         //Eigen::Matrix3f rot_;
         //cv2eigen(camera_R,rot_);
         //camera_R.back();
-        Rot3 rot_=Sam::cv2gtsamR(camera_R.back());
-        Point3 trans_=Sam::cv2gtsamT(camera_t.back());
-        cout<<"add initial pose"<<endl;
-        sam_.initial_estimate.insert(Symbol('x', 0), Pose3(rot_,trans_));
-        noiseModel::Diagonal::shared_ptr poseNoise = noiseModel::Diagonal::Sigmas((Vector(6) << Vector3::Constant(0.3),Vector3::Constant(0.1))); // 30cm std on x,y,z 0.1 rad on roll,pitch,yaw
-        sam_.graph.push_back(PriorFactor<Pose3>(Symbol('x', 0), Pose3(rot_,trans_), poseNoise));
+        // Rot3 rot_=Sam::cv2gtsamR(camera_R.back());
+        // Point3 trans_=Sam::cv2gtsamT(camera_t.back());
+        // cout<<"add initial pose"<<endl;
+        // sam_.initial_estimate.insert(Symbol('x', 0), Pose3(rot_,trans_));
+        // noiseModel::Diagonal::shared_ptr poseNoise = noiseModel::Diagonal::Sigmas((Vector(6) << Vector3::Constant(0.3),Vector3::Constant(0.1))); // 30cm std on x,y,z 0.1 rad on roll,pitch,yaw
+        // sam_.graph.push_back(PriorFactor<Pose3>(Symbol('x', 0), Pose3(rot_,trans_), poseNoise));
 
     }
 #endif
@@ -388,7 +388,7 @@ void VisualOdometry::MotionEstimation(std::vector <int> landmarkInd)
     std::cout << "New camera R: " << R_new << std::endl;
     std::cout << "New camera t: " << t_new << std::endl;
 #endif
-
+    cv::hconcat(R_new, t_new, proj);
     std::cout << "New camera matrix: " << proj << std::endl;
 }
 
@@ -438,15 +438,15 @@ void VisualOdometry::MotionEstimation(std::vector <int> landmarkInd,std::vector<
     camera_t_incremental.push_back(t_new_incremental);
 
     /** This paret is for updating the gtsam graph */
-    Pose3 last_pose;
-    if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-1)))
-        last_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',camera_R.size()-1)); // pull the last pose out using the size the R matrix;
-    else
-        last_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x',camera_R.size()-1)); // pull the last pose out using the size the R matrix;
+    // Pose3 last_pose;
+    // if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-1)))
+    //     last_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',camera_R.size()-1)); // pull the last pose out using the size the R matrix;
+    // else
+    //     last_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x',camera_R.size()-1)); // pull the last pose out using the size the R matrix;
 
-    Rot3 current_R = Sam::cv2gtsamR(R_new_incremental)*last_pose.rotation();
-    Point3 current_t = last_pose.translation()+last_pose.rotation().inverse()*Sam::cv2gtsamT(t_new_incremental);
-    sam_.initial_estimate.insert(Symbol('x',camera_R.size()),Pose3(current_R,current_t));
+    // Rot3 current_R = Sam::cv2gtsamR(R_new_incremental)*last_pose.rotation();
+    // Point3 current_t = last_pose.translation()+last_pose.rotation().inverse()*Sam::cv2gtsamT(t_new_incremental);
+    // sam_.initial_estimate.insert(Symbol('x',camera_R.size()),Pose3(current_R,current_t));
 
     cout<<"new landmark number: "<<newLandmarksInd.size()<<endl;
 
@@ -458,12 +458,12 @@ void VisualOdometry::MotionEstimation(std::vector <int> landmarkInd,std::vector<
     camera_t.push_back(t_new);
 
 #if DEBUG
-    cv::hconcat(R_new, t_new, proj);
+    
     std::cout << "PnP Total num of feature points: " << points_current_l.size() << "  PnP num of Inliers: " << pnpInliers.size() << std::endl;
     std::cout << "New camera R: " << R_new << std::endl;
     std::cout << "New camera t: " << t_new << std::endl;
 #endif
-
+    cv::hconcat(R_new, t_new, proj);
     std::cout << "New camera matrix: " << proj << std::endl;
 }
 
@@ -518,16 +518,216 @@ void VisualOdometry::Start_SAM()
     else MotionEstimation(landmarkInd,newLandmarksInd);
 
 
-    cout<<"new landmark number: "<<newLandmarksInd.size()<<endl;
+    cout<<"LandmarkInd size: "<<landmarkInd.size()<<endl;
+
+    cout << endl << "********** Frame " << num_of_frame << " ************" << endl;
+    cout << "LandmarkMap size: " << landmarkMap.size() << endl;
 
     /** add new landmark into initial estimation and add the factors in the factor graph */
-
     Pose3 current_pose;
+    if (num_of_frame-1 >= observe_threshold - 1)
+    {
+        /* Add x(num_of_frame - observe_threshold + 1) and corresponding landmarks */
+        size_t frame_to_add = num_of_frame-1 - observe_threshold + 1;
+        cout << "Adding factors for frame " << frame_to_add << endl;
 
-    if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-1)))
-        current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
-    else
-        current_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
+        Pose3 last_pose;
+        if (frame_to_add > 0){
+            if (sam_.initial_estimate_history.exists(Symbol('x', frame_to_add - 1))) {
+                if (DEBUG)
+                    cout << "Adding new pose prior for x" << frame_to_add << endl;
+                last_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x', frame_to_add - 1)); // pull the last pose out using the size the R matrix;
+                Rot3 current_R = Sam::cv2gtsamR(camera_R_incremental[frame_to_add - 1])*last_pose.rotation();
+                Point3 current_t = last_pose.translation()+last_pose.rotation().inverse()*Sam::cv2gtsamT(camera_t_incremental[frame_to_add - 1]);
+                sam_.initial_estimate.insert(Symbol('x', frame_to_add), Pose3(current_R,current_t));
+                sam_.initial_estimate_history.insert(Symbol('x', frame_to_add), Pose3(current_R,current_t));
+            }
+            else {
+                cout << "Can't find x" << frame_to_add-1 << " prior ?!?!?!?" << endl;
+            }
+        }
+        else 
+        {
+            Rot3 rot_=Sam::cv2gtsamR(camera_R.front());
+            Point3 trans_=Sam::cv2gtsamT(camera_t.front());
+            // cout<<"add initial pose"<<endl;
+            sam_.initial_estimate.insert(Symbol('x', 0), Pose3(rot_,trans_));
+            noiseModel::Diagonal::shared_ptr poseNoise = noiseModel::Diagonal::Sigmas((Vector(6) << Vector3::Constant(0.3),Vector3::Constant(0.1))); // 30cm std on x,y,z 0.1 rad on roll,pitch,yaw
+            sam_.graph.push_back(PriorFactor<Pose3>(Symbol('x', 0), Pose3(rot_,trans_), poseNoise));
+            sam_.initial_estimate_history.insert(Symbol('x', frame_to_add), Pose3(rot_,trans_));
+        }
+
+        if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-1)))
+            current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x', frame_to_add)); // pull the last pose out using the size the R matrix;
+        else
+            current_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x', frame_to_add)); // pull the last pose out using the size the R matrix;
+
+
+        for (size_t i=0 ; i<landmarkMap[frame_to_add].size() ; ++i)
+        {
+
+            size_t ind = landmarkMap[frame_to_add][i];
+            if (DEBUG)
+                cout << "L" << ind << " has : " << landmarks[ind].traceHistory_l.size() << " tracking histories" << endl;
+
+            // For landmarks that either just get observed for X times, or those were not good
+            if ( ( landmarks[ind].traceHistory_l.size() == observe_threshold && !landmarks[ind].in_Graph ) ||
+                ( landmarks[ind].traceHistory_l.size() > observe_threshold && !landmarks[ind].in_Graph ))
+            {
+                /** triangulate the landmark */
+                cout << "Adding landmark " << ind << " to Graph for the first time." << endl;
+                cv::Mat current_R(3,3,CV_32FC1);
+                Sam::gtsam2cvR(current_pose.rotation(),current_R);
+                cv::Mat current_t(3,1,CV_32FC1);
+                Sam::gtsam2cvT(current_pose.translation(),current_t);
+
+                cv::Mat rt_l, rt_r;
+                cv::hconcat(current_R, current_t, rt_l);
+                current_t.at<float>(0,0)=-camera_model.baseline+current_t.at<float>(0,0);
+                if (DEBUG)
+                    cout<<current_t<<endl;
+                cv::hconcat(current_R, current_t, rt_r);
+
+                std::vector <cv::Point2f> points_current_l, points_current_r;
+
+                points_current_l.push_back(landmarks[ind].traceHistory_l[frame_to_add].pt);
+                points_current_r.push_back(landmarks[ind].traceHistory_r[frame_to_add].pt);
+
+                if (DEBUG)
+                    cout<<rt_r<<endl;
+    
+                cv::Mat points_last_4D;
+                /** repair the triangulation */
+                cv::triangulatePoints(camera_model.intrinsic*rt_l, camera_model.intrinsic*rt_r, points_current_l, points_current_r, points_last_4D);
+                
+                cout << "Adding priors" << endl;
+                  
+                double x_ =  points_last_4D.at<float>(0,0) / points_last_4D.at<float>(3,0);
+                double y_ = points_last_4D.at<float>(1,0) / points_last_4D.at<float>(3,0);
+                double z_ = points_last_4D.at<float>(2,0) / points_last_4D.at<float>(3,0);
+                gtsam::Point3 pt(x_,y_,z_);
+
+                if (DEBUG){
+                    cout << "2D: "<< points_current_l[0] << "  " << points_current_r[0] << endl;
+                    cout<< "Trangulated: " << x_ <<" "<<y_<<" "<<z_<<endl;
+                }
+
+                // Need to choose only the *GOOD* landmarks to put into graph
+                if (max(abs(x_), max(abs(y_), abs(z_))) < GOOD_LANDMARK_COORD_THRESHOLD) {
+                    sam_.initial_estimate.insert(Symbol('l',ind),pt);
+                    if (DEBUG)
+                        cout<<"landmark_num: "<<sam_.initial_estimate.filter<Point3>().size()<<endl;
+
+                    // if(sam_.initial_estimate.filter<Point3>().size()>=1)
+                    // {
+                        noiseModel::Isotropic::shared_ptr pointNoise = noiseModel::Isotropic::Sigma(3, 0.2);
+                        sam_.graph.push_back(gtsam::PriorFactor<Point3>(Symbol('l', ind), pt, pointNoise));
+                    // }
+                    
+
+                    cout << "Adding Stereo Factors" << endl;
+                    for(size_t history=0; history<1; ++history) //landmarks[ind].traceFrameNum.size(); ++history)
+                    {
+                        cout<<landmarks[ind].traceHistory_l[history].pt.x<<endl;
+                        cout<<landmarks[ind].traceHistory_r[history].pt.x<<endl;
+                        if (DEBUG)
+                            cout << "Adding (x" <<  landmarks[ind].traceFrameNum[history]-1 << ", l" << ind << endl;
+                        sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+                            landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
+                            (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
+                            sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
+                            Symbol('l', ind), sam_.K));
+                        GenericStereoFactor<Pose3, Point3> f_(StereoPoint2(
+                            landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
+                            (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
+                            sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
+                            Symbol('l', ind), sam_.K);
+
+                        Vector e_=f_.evaluateError(current_pose,Point3(-1.01004255, -1.04808509, 1.52936518));
+                        if (DEBUG) {
+                            cout<<"error estimate:"<<endl;
+                            cout<<e_<<endl;
+                        }               
+                    }
+                    landmarks[ind].in_Graph = true;
+                }
+
+            }
+            else if (landmarks[ind].in_Graph)
+            {
+                if (DEBUG)
+                    cout << "Adding (x" <<  num_of_frame-1  - observe_threshold + 1 << ", l" << ind << endl;
+                sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+                    landmarks[ind].traceHistory_l[frame_to_add].pt.x, landmarks[ind].traceHistory_r[frame_to_add].pt.x,
+                    (landmarks[ind].traceHistory_l[frame_to_add].pt.y+landmarks[ind].traceHistory_r[frame_to_add].pt.y)/2),
+                    sam_.model,Symbol('x', frame_to_add),
+                    Symbol('l', ind), sam_.K));
+
+            }
+
+            //sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+            //    landmarks[ind].keypoint_l.pt.x, landmarks[ind].keypoint_r.pt.x,
+            //    (landmarks[ind].keypoint_l.pt.y+landmarks[ind].keypoint_r.pt.y)/2),
+            //    sam_.model,Symbol('x', num_of_frame-1),
+            //    Symbol('l', ind), sam_.K));
+        }
+
+        cerr<<"optimizing..."<< num_of_frame << endl;
+
+        //if ((key_frames.back()==num_of_frame)&&(num_of_frame!=1))
+        if (num_of_frame>observe_threshold)
+        {
+            cout<<"Total number of initial estimate:"<<sam_.initial_estimate.filter<Point3>().size()<<endl;
+            //LevenbergMarquardtOptimizer optimizer = LevenbergMarquardtOptimizer(sam_.graph, sam_.initial_estimate);
+            //Values new_estimate = optimizer.optimize();
+            if (DEBUG) {
+                sam_.graph.print();
+                Values res=sam_.initial_estimate.filter<Pose3>();
+                res.print();
+            }
+                
+            sam_.isam.update(sam_.graph, sam_.initial_estimate);
+            sam_.isam.update();
+            Values new_estimate = sam_.isam.calculateEstimate();
+
+            // sam_.initial_estimate = new_estimate;
+            // current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
+            // cout<<"GTSAM pose:"<<endl;
+            // cout<<current_pose<<endl;
+            // cout<<"Total number of new estimate:"<<new_estimate.size()<<endl;
+            // cout<<"Total number of History estimate:"<<sam_.initial_estimate_history.size()<<endl;
+            // sam_.initial_estimate_history.insert(sam_.initial_estimate);
+            // sam_.initial_estimate_history=new_estimate;
+
+            sam_.graph.resize(0);
+            sam_.initial_estimate.clear();
+            new_estimate.print("Current estimate: ");
+        }
+    }   
+
+
+
+
+    // Pose3 last_pose;
+    // if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-2)))
+    //     last_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',camera_R.size()-2)); // pull the last pose out using the size the R matrix;
+    // else
+    //     last_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x',camera_R.size()-2)); // pull the last pose out using the size the R matrix;
+    
+    // Rot3 current_R = Sam::cv2gtsamR(R_new_incremental)*last_pose.rotation();
+    // Point3 current_t = last_pose.translation()+last_pose.rotation().inverse()*Sam::cv2gtsamT(t_new_incremental);
+    // sam_.initial_estimate.insert(Symbol('x',camera_R.size()),Pose3(current_R,current_t));
+
+
+    // Pose3 current_pose;
+
+    // if (sam_.initial_estimate.exists(Symbol('x',camera_R.size()-1)))
+    //     current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
+    // else
+    //     current_pose = sam_.initial_estimate_history.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
+
+
+    
 
 /*
     if(!newLandmarksInd.empty())
@@ -540,7 +740,7 @@ void VisualOdometry::Start_SAM()
 
         cv::hconcat(current_R, current_t +cv::Mat(-camera_model.baseline, 0, 0), rt_r);
 
-        std::vector <cv::Point2f> points_current_l, points_current_r;
+        std::vector <cv::Point2f> points_currer5t_l, points_current_r;
         for (size_t i=0;i<newLandmarksInd.size();i++){
             int ind = newLandmarksInd[i];
             points_current_l.push_back(landmarks[ind].keypoint_l.pt);
@@ -570,114 +770,128 @@ void VisualOdometry::Start_SAM()
 */
     /** add existing landmark in the factor graph */
 
-    const size_t observe_threshold = 2;
-    for (size_t i=0 ; i<landmarkInd.size() ; ++i)
-    {
+    // if (landmarkMap.size()>0) {
+    //     cout << "Last frame landmark map contains " << landmarkMap[num_of_frame-1].size() << " landmakrs" << endl;
+    //     for (size_t i=0 ; i<landmarkMap[num_of_frame-1].size() ; ++i)
+    //     {
 
-        size_t ind = landmarkInd[i];
-        if (landmarks[ind].traceHistory_l.size()==observe_threshold)
-        {
-            /** triangulate the landmark */
+    //         size_t ind = landmarkMap[num_of_frame-1][i];
+    //         cout << "L" << ind << ": " << landmarks[ind].traceHistory_l.size() << " ";
+    //         if (landmarks[ind].traceHistory_l.size()==observe_threshold)
+    //         {
+    //             /** triangulate the landmark */
+    //             cout << "Adding landmark " << ind << " to Graph for the first time." << endl;
+    //             cv::Mat current_R(3,3,CV_32FC1);
+    //             Sam::gtsam2cvR(current_pose.rotation(),current_R);
+    //             cv::Mat current_t(3,1,CV_32FC1);
+    //             Sam::gtsam2cvT(current_pose.translation(),current_t);
 
-            cv::Mat current_R(3,3,CV_32FC1);
-            Sam::gtsam2cvR(current_pose.rotation(),current_R);
-            cv::Mat current_t(3,1,CV_32FC1);
-            Sam::gtsam2cvT(current_pose.translation(),current_t);
+    //             cv::Mat rt_l, rt_r;
+    //             cv::hconcat(current_R, current_t, rt_l);
+    //             current_t.at<float>(0,0)=-camera_model.baseline+current_t.at<float>(0,0);
+    //             cout<<current_t<<endl;
+    //             cv::hconcat(current_R, current_t, rt_r);
 
-            cv::Mat rt_l, rt_r;
-            cv::hconcat(current_R, current_t, rt_l);
-            current_t.at<float>(0,0)=-camera_model.baseline+current_t.at<float>(0,0);
-            cout<<current_t<<endl;
-            cv::hconcat(current_R, current_t, rt_r);
+    //             std::vector <cv::Point2f> points_current_l, points_current_r;
 
-            std::vector <cv::Point2f> points_current_l, points_current_r;
+    //             points_current_l.push_back(landmarks[ind].keypoint_l.pt);
+    //             points_current_r.push_back(landmarks[ind].keypoint_r.pt);
 
-            points_current_l.push_back(landmarks[ind].keypoint_l.pt);
-            points_current_r.push_back(landmarks[ind].keypoint_r.pt);
+    //             cout<<rt_r<<endl;
+    //             cv::Mat points_last_4D;
+    //             /** repair the triangulation */
+    //             cv::triangulatePoints(camera_model.intrinsic*rt_l, camera_model.intrinsic*rt_r, points_current_l, points_current_r, points_last_4D);
+                
+    //             cout << "Adding priors" << endl;
+                  
+    //             double x_ =  points_last_4D.at<float>(0,0) / points_last_4D.at<float>(3,0);
+    //             double y_ = points_last_4D.at<float>(1,0) / points_last_4D.at<float>(3,0);
+    //             double z_ = points_last_4D.at<float>(2,0) / points_last_4D.at<float>(3,0);
+    //             gtsam::Point3 pt(x_,y_,z_);
 
-            cout<<rt_r<<endl;
-            cv::Mat points_last_4D;
-            /** repair the triangulation */
-            cv::triangulatePoints(camera_model.intrinsic*rt_l, camera_model.intrinsic*rt_r, points_current_l, points_current_r, points_last_4D);
-            double x_ =  points_last_4D.at<float>(0,0) / points_last_4D.at<float>(3,0);
-            double y_ = points_last_4D.at<float>(1,0) / points_last_4D.at<float>(3,0);
-            double z_ = points_last_4D.at<float>(2,0) / points_last_4D.at<float>(3,0);
-            gtsam::Point3 pt(x_,y_,z_);
-            cout<<x_<<" "<<y_<<" "<<z_<<endl;
-            sam_.initial_estimate.insert(Symbol('l',ind),pt);
-            cout<<"landmark_num: "<<sam_.initial_estimate.filter<Point3>().size()<<endl;
-            if(sam_.initial_estimate.filter<Point3>().size()==1)
-            {
-                noiseModel::Isotropic::shared_ptr pointNoise = noiseModel::Isotropic::Sigma(3, 2);
-                sam_.graph.push_back(gtsam::PriorFactor<Point3>(Symbol('l', 0), pt, pointNoise));
-            }
+    //             cout << "2D: "<< points_current_l[0] << "  " << points_current_r[0] << endl;
 
-            for(size_t history=0; history<landmarks[ind].traceFrameNum.size(); ++history)
-            {
-                cout<<landmarks[ind].traceHistory_l[history].pt.x<<endl;
-                cout<<landmarks[ind].traceHistory_r[history].pt.x<<endl;
-                sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
-                    landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
-                    (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
-                    sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
-                    Symbol('l', ind), sam_.K));
-                GenericStereoFactor<Pose3, Point3> f_(StereoPoint2(
-                    landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
-                    (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
-                    sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
-                    Symbol('l', ind), sam_.K);
+    //             cout<< "Trangulated: " << x_ <<" "<<y_<<" "<<z_<<endl;
+    //             sam_.initial_estimate.insert(Symbol('l',ind),pt);
+    //             cout<<"landmark_num: "<<sam_.initial_estimate.filter<Point3>().size()<<endl;
 
-                Vector e_=f_.evaluateError(current_pose,Point3(-1.01004255, -1.04808509, 1.52936518));
-                cout<<"error estimate:"<<endl;
-                cout<<e_<<endl;
-            }
-            break;
+    //             // if(sam_.initial_estimate.filter<Point3>().size()>=1)
+    //             // {
+    //                 noiseModel::Isotropic::shared_ptr pointNoise = noiseModel::Isotropic::Sigma(3, 0.2);
+    //                 sam_.graph.push_back(gtsam::PriorFactor<Point3>(Symbol('l', ind), pt, pointNoise));
+    //             // }
+                
 
-        }
+    //             cout << "Adding Stereo Factors" << endl;
+    //             for(size_t history=0; history<landmarks[ind].traceFrameNum.size(); ++history)
+    //             {
+    //                 cout<<landmarks[ind].traceHistory_l[history].pt.x<<endl;
+    //                 cout<<landmarks[ind].traceHistory_r[history].pt.x<<endl;
+    //                 cout << "Adding (x" <<  landmarks[ind].traceFrameNum[history]-1 << ", l" << ind << endl;
+    //                 sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+    //                     landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
+    //                     (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
+    //                     sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
+    //                     Symbol('l', ind), sam_.K));
+    //                 GenericStereoFactor<Pose3, Point3> f_(StereoPoint2(
+    //                     landmarks[ind].traceHistory_l[history].pt.x, landmarks[ind].traceHistory_r[history].pt.x,
+    //                     (landmarks[ind].traceHistory_l[history].pt.y+landmarks[ind].traceHistory_r[history].pt.y)/2),
+    //                     sam_.model,Symbol('x', landmarks[ind].traceFrameNum[history]-1),
+    //                     Symbol('l', ind), sam_.K);
 
-        if (landmarks[ind].traceHistory_l.size()>observe_threshold)
-        {
-            sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
-                landmarks[ind].keypoint_l.pt.x, landmarks[ind].keypoint_r.pt.x,
-                (landmarks[ind].keypoint_l.pt.y+landmarks[ind].keypoint_r.pt.y)/2),
-                sam_.model,Symbol('x', num_of_frame-1),
-                Symbol('l', ind), sam_.K));
+    //                 Vector e_=f_.evaluateError(current_pose,Point3(-1.01004255, -1.04808509, 1.52936518));
+    //                 cout<<"error estimate:"<<endl;
+    //                 cout<<e_<<endl;
+    //             }
 
-        }
+    //         }
 
-        //sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
-        //    landmarks[ind].keypoint_l.pt.x, landmarks[ind].keypoint_r.pt.x,
-        //    (landmarks[ind].keypoint_l.pt.y+landmarks[ind].keypoint_r.pt.y)/2),
-        //    sam_.model,Symbol('x', num_of_frame-1),
-        //    Symbol('l', ind), sam_.K));
-    }
+    //         if (landmarks[ind].traceHistory_l.size()>observe_threshold)
+    //         {
+    //             cout << "Adding (x" <<  num_of_frame-1 << ", l" << ind << endl;
+    //             sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+    //                 landmarks[ind].keypoint_l.pt.x, landmarks[ind].keypoint_r.pt.x,
+    //                 (landmarks[ind].keypoint_l.pt.y+landmarks[ind].keypoint_r.pt.y)/2),
+    //                 sam_.model,Symbol('x', num_of_frame-1),
+    //                 Symbol('l', ind), sam_.K));
 
-    cerr<<"optimizing..."<<endl;
+    //         }
 
-    //if ((key_frames.back()==num_of_frame)&&(num_of_frame!=1))
-    if (num_of_frame==2)
-    {
-        cout<<"Total number of initial estimate:"<<sam_.initial_estimate.filter<Point3>().size()<<endl;
-        //LevenbergMarquardtOptimizer optimizer = LevenbergMarquardtOptimizer(sam_.graph, sam_.initial_estimate);
-        //Values new_estimate = optimizer.optimize();
-        sam_.graph.print();
-        Values res=sam_.initial_estimate.filter<Pose3>();
-        res.print();
-        sam_.isam.update(sam_.graph, sam_.initial_estimate);
-        //sam_.isam.update();
-        //Values new_estimate = sam_.isam.calculateEstimate();
+    //         //sam_.graph.push_back(GenericStereoFactor<Pose3, Point3>(StereoPoint2(
+    //         //    landmarks[ind].keypoint_l.pt.x, landmarks[ind].keypoint_r.pt.x,
+    //         //    (landmarks[ind].keypoint_l.pt.y+landmarks[ind].keypoint_r.pt.y)/2),
+    //         //    sam_.model,Symbol('x', num_of_frame-1),
+    //         //    Symbol('l', ind), sam_.K));
+    //     }
+    // }
 
-        //sam_.initial_estimate = new_estimate;
-        //current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
-        //cout<<"GTSAM pose:"<<endl;
-        //cout<<current_pose<<endl;
-        //cout<<"Total number of new estimate:"<<new_estimate.size()<<endl;
-        //cout<<"Total number of History estimate:"<<sam_.initial_estimate_history.size()<<endl;
-        //sam_.initial_estimate_history.insert(sam_.initial_estimate);
-        //sam_.initial_estimate_history=new_estimate;
-        sam_.graph.resize(0);
-        sam_.initial_estimate.clear();
-    }
+    // cerr<<"optimizing..."<<endl;
+
+    // //if ((key_frames.back()==num_of_frame)&&(num_of_frame!=1))
+    // if (num_of_frame>observe_threshold)
+    // {
+    //     cout<<"Total number of initial estimate:"<<sam_.initial_estimate.filter<Point3>().size()<<endl;
+    //     //LevenbergMarquardtOptimizer optimizer = LevenbergMarquardtOptimizer(sam_.graph, sam_.initial_estimate);
+    //     //Values new_estimate = optimizer.optimize();
+    //     sam_.graph.print();
+    //     Values res=sam_.initial_estimate.filter<Pose3>();
+    //     res.print();
+    //     sam_.isam.update(sam_.graph, sam_.initial_estimate);
+    //     sam_.isam.update();
+    //     Values new_estimate = sam_.isam.calculateEstimate();
+
+    //     // sam_.initial_estimate = new_estimate;
+    //     current_pose = sam_.initial_estimate.at<Pose3>(Symbol('x',num_of_frame-1)); // pull the last pose out using the size the R matrix;
+    //     cout<<"GTSAM pose:"<<endl;
+    //     cout<<current_pose<<endl;
+    //     cout<<"Total number of new estimate:"<<new_estimate.size()<<endl;
+    //     // cout<<"Total number of History estimate:"<<sam_.initial_estimate_history.size()<<endl;
+    //     // sam_.initial_estimate_history.insert(sam_.initial_estimate);
+    //     // sam_.initial_estimate_history=new_estimate;
+
+    //     sam_.graph.resize(0);
+    //     sam_.initial_estimate.clear();
+    // }
     VisualizeLandmarks(image_l, image_r, active_landmarks);
 
     cout<<"Total number of initial estimate:"<<sam_.initial_estimate.size()<<endl;

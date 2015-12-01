@@ -5,6 +5,7 @@ Landmark::Landmark()
 {
     //ctor
     totalNumofLandmarks += 1;
+    in_Graph = false;
 }
 
 Landmark::Landmark(cv::KeyPoint kp_l, cv::KeyPoint kp_r, cv::Mat dscp_l, cv::Mat dscp_r)
@@ -18,6 +19,7 @@ Landmark::Landmark(cv::KeyPoint kp_l, cv::KeyPoint kp_r, cv::Mat dscp_l, cv::Mat
     this->descriptor_r = dscp_r;
 
     this->is_triangulated = false;
+    this->in_Graph = false;
 }
 
 Landmark::~Landmark()
